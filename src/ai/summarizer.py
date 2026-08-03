@@ -1,13 +1,31 @@
 """Daily summary generation — pure programmatic rendering."""
 
 import re
-from typing import Any, List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from ..models import ContentItem
 
-
 _CJK = r"[\u4e00-\u9fff\u3400-\u4dbf]"
 _ASCII = r"[A-Za-z0-9]"
+
+_WEBHOOK_SOURCE_LABELS = {
+    "github": "GitHub",
+    "github_trending": "GitHub Trending",
+    "trendshift": "Trendshift",
+    "ossinsight": "OSSInsight",
+    "producthunt": "Product Hunt",
+    "yc": "Y Combinator",
+    "yc_launches": "YC Launches",
+    "yc_ai_directory": "YC AI Directory",
+    "huggingface": "Hugging Face",
+    "huggingface_spaces": "Hugging Face Spaces",
+    "hackernews": "Hacker News",
+    "show_hn": "Show HN",
+    "reddit": "Reddit",
+    "telegram": "Telegram",
+    "rss": "RSS",
+    "google_news": "Google News",
+}
 
 
 def _pangu(text: str) -> str:
@@ -15,6 +33,31 @@ def _pangu(text: str) -> str:
     text = re.sub(rf"({_CJK})({_ASCII})", r"\1 \2", text)
     text = re.sub(rf"({_ASCII})({_CJK})", r"\1 \2", text)
     return text
+
+
+def _compact_webhook_summary(item: ContentItem, language: str) -> str:
+    """Return a short plain-text summary suitable for a compact chat card."""
+    raw_summary = (
+        item.metadata.get(f"detailed_summary_{language}")
+        or item.metadata.get("detailed_summary")
+        or item.ai_summary
+        or item.content
+        or ""
+    )
+    summary = str(raw_summary)
+    summary = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", summary)
+    summary = re.sub(r"[*_`#<>]", "", summary)
+    summary = re.sub(r"\s+", " ", summary).strip()
+    max_chars = 80 if language == "zh" else 180
+    if len(summary) <= max_chars:
+        return summary
+    return summary[: max_chars - 1].rstrip("，,；;。.!?！？:： ") + "…"
+
+
+def _webhook_source_label(item: ContentItem) -> str:
+    """Return a human-readable source name for webhook cards."""
+    source = str(item.metadata.get("radar_source") or item.source_type.value)
+    return _WEBHOOK_SOURCE_LABELS.get(source, source.replace("_", " ").title())
 
 
 LABELS = {
@@ -220,10 +263,13 @@ class DailySummarizer:
                 if language == "zh":
                     title = _pangu(title)
                 score = item.ai_score or "?"
-                source = item.metadata.get("radar_source") or item.source_type.value
-                entry_lines.append(
-                    f"{item_index}. [{title}]({item.url}) · ⭐ {score}/10 · {source}"
-                )
+                source = _webhook_source_label(item)
+                compact_summary = _compact_webhook_summary(item, language)
+                entry = f"{item_index}. [{title}]({item.url}) · ⭐ {score}/10 · {source}"
+                if compact_summary:
+                    summary_label = "摘要：" if language == "zh" else "Summary: "
+                    entry += f"\n   {summary_label}{compact_summary}"
+                entry_lines.append(entry)
 
             chunks: List[List[str]] = []
             current: List[str] = []

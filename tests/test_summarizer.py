@@ -168,6 +168,7 @@ def test_generate_webhook_section_overviews_keeps_sections_separate():
             "digest_section_name": "第一部分：AI 产品 + 爆火开源项目雷达",
             "digest_section_order": 0,
             "radar_source": "producthunt",
+            "detailed_summary_zh": "这是用于飞书卡片的一句话中文摘要。",
         }
     )
     other = _make_item(2)
@@ -189,10 +190,29 @@ def test_generate_webhook_section_overviews_keeps_sections_separate():
     assert len(results) == 2
     assert results[0]["section_key"] == "radar"
     assert "Important Item 1" in results[0]["summary"]
-    assert "producthunt" in results[0]["summary"]
+    assert "摘要：这是用于飞书卡片的一句话中文摘要。" in results[0]["summary"]
+    assert "Product Hunt" in results[0]["summary"]
     assert "Important Item 2" not in results[0]["summary"]
     assert results[1]["section_key"] == "other"
     assert "Important Item 2" in results[1]["summary"]
+    assert "摘要：Summary for item 2." in results[1]["summary"]
+
+
+def test_generate_webhook_section_overviews_truncates_long_summary():
+    summarizer = DailySummarizer()
+    item = _make_item(1)
+    item.metadata["detailed_summary_zh"] = "摘" * 120
+
+    results = summarizer.generate_webhook_section_overviews(
+        [item],
+        date="2026-04-25",
+        total_fetched=1,
+        language="zh",
+    )
+
+    rendered = results[0]["summary"]
+    assert f"摘要：{'摘' * 79}…" in rendered
+    assert "摘" * 80 + "…" not in rendered
 
 
 def test_generate_webhook_section_overviews_splits_large_sections_without_drops():
