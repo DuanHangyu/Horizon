@@ -663,7 +663,7 @@ Webhook notification is optional and disabled unless `webhook.enabled` is `true`
 
 - `enabled`: Turns webhook delivery on or off. The default is `false`.
 - `url_env`: Environment variable that contains the webhook URL. For example, set `HORIZON_WEBHOOK_URL=https://...` in `.env`.
-- `delivery`: Controls how messages are sent. Use `summary` for one full message, `summary_and_items` for one overview plus one message per selected item, or `section_overviews` for one compact title-and-link message per digest section.
+- `delivery`: Controls how messages are sent. Use `summary` for one full message, `summary_and_items` for one overview plus one message per selected item, or `section_overviews` for compact digest-section messages with titles, short summaries, scores, sources, and links.
 - `overview_position`: Controls where the overview is sent in `summary_and_items` mode. Use `first` for the traditional order, or `last` to send item details in reverse and keep the overview as the newest chat message.
 - `platform`: Optional webhook platform hint. Use `generic` by default, or `feishu` / `lark` to enable platform-specific card rendering.
 - `layout`: Controls the message layout. Use `markdown` for templated Markdown delivery, or `collapsible` with `platform: "feishu"` / `"lark"` for a single Feishu Card JSON 2.0 message with each item in a collapsed panel.
@@ -682,7 +682,7 @@ When `request_body` is a JSON object or array, Horizon renders placeholders and 
 
 - `summary`: Sends one message containing the full daily summary. This is simple, but some chat platforms may reject long messages.
 - `summary_and_items`: Sends one overview message plus one message per selected item. In each item message, `#{summary}` contains only that item's Markdown body. This is useful for platforms that reject or truncate long messages.
-- `section_overviews`: Sends one compact overview per configured digest section. Each overview lists that section's titles, scores, sources, and links. Large sections are split automatically according to `section_max_bytes`.
+- `section_overviews`: Sends compact messages per configured digest section. Each item includes its title, an existing AI-generated summary shortened to 80 Chinese or 180 English characters, score, human-readable source, and link. Large sections are split automatically according to `section_max_bytes`.
 
 `layout` controls how each message is rendered:
 
