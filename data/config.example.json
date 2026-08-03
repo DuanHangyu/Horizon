@@ -35,10 +35,54 @@
         "enabled": true
       }
     ],
+    "github_trending": {
+      "enabled": false,
+      "period": "daily",
+      "languages": [""],
+      "max_items": 30,
+      "ai_only": true,
+      "category": "github-trending"
+    },
+    "trendshift": {
+      "enabled": false,
+      "period": "daily",
+      "max_items": 30,
+      "api_token_env": "TRENDSHIFT_API_TOKEN",
+      "ai_only": true,
+      "category": "github-trending"
+    },
     "hackernews": {
       "enabled": true,
       "fetch_top_stories": 20,
       "min_score": 100
+    },
+    "show_hn": {
+      "enabled": false,
+      "fetch_top_stories": 50,
+      "min_score": 10,
+      "ai_only": true,
+      "category": "startup-products"
+    },
+    "producthunt": {
+      "enabled": false,
+      "max_items": 20,
+      "api_token_env": "PRODUCTHUNT_TOKEN",
+      "ai_only": true,
+      "category": "startup-products"
+    },
+    "yc_products": {
+      "enabled": false,
+      "max_items": 20,
+      "ai_only": true,
+      "validate_ai_directory": true,
+      "category": "startup-products"
+    },
+    "huggingface_spaces": {
+      "enabled": false,
+      "max_items": 20,
+      "min_likes": 10,
+      "max_age_days": 30,
+      "category": "ai-products"
     },
     "rss": [
       {
@@ -130,11 +174,14 @@
   },
   "filtering": {
     "ai_score_threshold": 6.0,
+    "digest_backfill_score_threshold": null,
     "time_window_hours": 24,
     "max_items": null,
     "category_groups": {},
+    "digest_sections": {},
     "default_group": "other",
-    "default_group_limit": null
+    "default_group_limit": null,
+    "default_section": null
   },
   "webhook": {
     "enabled": false,

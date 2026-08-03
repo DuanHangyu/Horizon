@@ -46,6 +46,9 @@ Two source types are supported:
 
 - **`user_events`** — tracks push, create, release, public, and watch events for a user
 - **`repo_releases`** — tracks new releases for a specific repository
+- **`repo_search`** — discovers recently created repositories using a GitHub
+  repository-search query, optional minimum stars, and a configurable lookback
+  window; useful for new-project radar feeds
 
 **Config** (`sources.github`, list of entries):
 
@@ -66,7 +69,60 @@ Two source types are supported:
 }
 ```
 
+Recent repository discovery:
+
+```json
+{
+  "type": "repo_search",
+  "query": "topic:llm",
+  "lookback_days": 30,
+  "min_stars": 20,
+  "max_items": 15,
+  "category": "github-trending",
+  "enabled": true
+}
+```
+
 **Authentication**: Set `GITHUB_TOKEN` in your environment for higher rate limits (5000 req/hr vs 60 without).
+
+## AI Product and Breakout OSS Radar
+
+**Files**: `src/scrapers/trending.py`, `src/scrapers/product_radar.py`, and
+`src/scrapers/hackernews.py`
+
+The radar uses platform rankings as candidate-generation evidence instead of
+treating a recent keyword-matched repository as "trending":
+
+- **GitHub Trending** — public daily/weekly/monthly HTML ranking, including
+  rank, total stars, forks, language, and stars gained in the selected period.
+- **Trendshift** — official API when `TRENDSHIFT_API_TOKEN` is configured;
+  otherwise its public JSON-LD ranking page. The public fallback exposes rank
+  but fewer growth metrics.
+- **OSSInsight** — recent star velocity and repository activity. Its current
+  trending endpoint is public but not part of OSSInsight's documented stable
+  API, so Horizon treats it as a corroborating signal.
+- **Product Hunt** — official GraphQL API when `PRODUCTHUNT_TOKEN` is set;
+  otherwise the public Atom feed. GraphQL provides daily rank, votes, comments,
+  makers, and topics; RSS does not provide vote totals.
+- **YC Launches** — the official launches page currently returns JSON with
+  launch votes and company fields. Horizon filters for AI launches and checks
+  company slugs against the visible YC AI company directory when available.
+- **Hugging Face Spaces** — public Spaces metadata in the directory's default
+  trending order, filtered by likes and recent activity.
+- **Show HN** — the official `showstories.json` list plus item points, comments,
+  and top-level discussion text.
+
+All adapters emit `radar_signals`. When the same GitHub repository appears in
+GitHub Trending, Trendshift, and OSSInsight, Horizon merges it by canonical URL
+and preserves every signal rather than publishing three duplicate entries.
+
+Product Hunt and Trendshift tokens are optional. Add these environment
+variables for stable official APIs and richer metrics:
+
+```dotenv
+PRODUCTHUNT_TOKEN=...
+TRENDSHIFT_API_TOKEN=ts_live_...
+```
 
 ## RSS
 

@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import httpx
 
@@ -57,19 +57,20 @@ class GitHubScraper(BaseScraper):
                 continue
 
             if source.type == "user_events" and source.username:
-                user_items = await self._fetch_user_events(source.username, since)
+                user_items = await self._fetch_user_events(source, since)
                 items.extend(user_items)
             elif source.type == "repo_releases" and source.owner and source.repo:
-                release_items = await self._fetch_repo_releases(
-                    source.owner, source.repo, since
-                )
+                release_items = await self._fetch_repo_releases(source, since)
                 items.extend(release_items)
+            elif source.type == "repo_search" and source.query:
+                search_items = await self._fetch_repo_search(source)
+                items.extend(search_items)
 
         return items
 
     async def _fetch_user_events(
         self,
-        username: str,
+        source: GitHubSourceConfig,
         since: datetime
     ) -> List[ContentItem]:
         """Fetch public events for a user.
@@ -81,6 +82,10 @@ class GitHubScraper(BaseScraper):
         Returns:
             List[ContentItem]: Event content items
         """
+        username = source.username
+        if not username:
+            return []
+
         url = f"{self.base_url}/users/{username}/events/public"
         items = []
 
@@ -105,7 +110,7 @@ class GitHubScraper(BaseScraper):
                 ]:
                     continue
 
-                item = self._parse_event(event, username)
+                item = self._parse_event(event, username, source.category)
                 if item:
                     items.append(item)
 
@@ -114,7 +119,12 @@ class GitHubScraper(BaseScraper):
 
         return items
 
-    def _parse_event(self, event: dict, username: str) -> Optional[ContentItem]:
+    def _parse_event(
+        self,
+        event: dict,
+        username: str,
+        category: Optional[str] = None,
+    ) -> Optional[ContentItem]:
         """Parse GitHub event into ContentItem.
 
         Args:
@@ -165,13 +175,13 @@ class GitHubScraper(BaseScraper):
             metadata={
                 "event_type": event_type,
                 "repo": repo_name,
+                "category": category,
             }
         )
 
     async def _fetch_repo_releases(
         self,
-        owner: str,
-        repo: str,
+        source: GitHubSourceConfig,
         since: datetime
     ) -> List[ContentItem]:
         """Fetch releases for a repository.
@@ -184,6 +194,11 @@ class GitHubScraper(BaseScraper):
         Returns:
             List[ContentItem]: Release content items
         """
+        owner = source.owner
+        repo = source.repo
+        if not owner or not repo:
+            return []
+
         url = f"{self.base_url}/repos/{owner}/{repo}/releases"
         items = []
 
@@ -212,6 +227,7 @@ class GitHubScraper(BaseScraper):
                         "repo": f"{owner}/{repo}",
                         "tag": release["tag_name"],
                         "prerelease": release.get("prerelease", False),
+                        "category": source.category,
                     }
                 )
                 items.append(item)
@@ -220,3 +236,96 @@ class GitHubScraper(BaseScraper):
             logger.warning("Error fetching releases for %s/%s: %s", owner, repo, e)
 
         return items
+
+    async def _fetch_repo_search(
+        self,
+        source: GitHubSourceConfig,
+    ) -> List[ContentItem]:
+        """Discover recently-created repositories matching a GitHub query."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=source.lookback_days)
+        query_parts = [source.query or "", f"created:>={cutoff:%Y-%m-%d}"]
+        if source.min_stars:
+            query_parts.append(f"stars:>={source.min_stars}")
+
+        params = {
+            "q": " ".join(part for part in query_parts if part).strip(),
+            "sort": source.sort,
+            "order": source.order,
+            "per_page": source.max_items,
+        }
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/search/repositories",
+                params=params,
+                headers=self._get_headers(),
+                follow_redirects=True,
+                timeout=20.0,
+            )
+            response.raise_for_status()
+            rows = response.json().get("items") or []
+        except httpx.HTTPError as exc:
+            logger.warning("Error searching GitHub repositories for %s: %s", source.query, exc)
+            return []
+
+        items: List[ContentItem] = []
+        for row in rows:
+            repo_id = row.get("id")
+            repo_name = row.get("full_name")
+            html_url = row.get("html_url")
+            if repo_id is None or not repo_name or not html_url:
+                continue
+
+            created_at = self._parse_github_datetime(row.get("created_at"))
+            pushed_at = self._parse_github_datetime(row.get("pushed_at"))
+            topics = row.get("topics") or []
+            description = (row.get("description") or "").strip()
+            stars = int(row.get("stargazers_count") or 0)
+            forks = int(row.get("forks_count") or 0)
+
+            content_lines = [
+                f"GitHub repository: {repo_name}",
+                f"Stars: {stars}",
+                f"Forks: {forks}",
+                f"Primary language: {row.get('language') or 'unknown'}",
+                f"Created: {created_at.isoformat()}",
+                f"Last pushed: {pushed_at.isoformat()}",
+            ]
+            if topics:
+                content_lines.append(f"Topics: {', '.join(topics)}")
+            if description:
+                content_lines.extend(["", description])
+
+            items.append(
+                ContentItem(
+                    id=self._generate_id("github", "repo", str(repo_id)),
+                    source_type=SourceType.GITHUB,
+                    title=f"{repo_name} ({stars}⭐)",
+                    url=html_url,
+                    content="\n".join(content_lines),
+                    author=(row.get("owner") or {}).get("login"),
+                    published_at=created_at,
+                    metadata={
+                        "repo": repo_name,
+                        "category": source.category,
+                        "discovery_type": "recent_repo_search",
+                        "stargazers_count": stars,
+                        "forks_count": forks,
+                        "open_issues_count": int(row.get("open_issues_count") or 0),
+                        "primary_language": row.get("language"),
+                        "topics": topics,
+                        "license": (row.get("license") or {}).get("spdx_id"),
+                        "created_at": created_at.isoformat(),
+                        "pushed_at": pushed_at.isoformat(),
+                        "homepage": row.get("homepage"),
+                    },
+                )
+            )
+
+        return items
+
+    @staticmethod
+    def _parse_github_datetime(value: Optional[str]) -> datetime:
+        """Parse a GitHub timestamp, falling back to the current UTC time."""
+        if not value:
+            return datetime.now(timezone.utc)
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))

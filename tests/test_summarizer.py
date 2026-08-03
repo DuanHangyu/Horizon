@@ -124,6 +124,107 @@ def test_generate_summary_zh_uses_localized_selection_header_and_numeric_date():
     assert "Apr 25, 08:00" not in result
 
 
+def test_generate_summary_groups_items_into_digest_sections():
+    summarizer = DailySummarizer()
+    radar = _make_item(1)
+    radar.metadata.update(
+        {
+            "digest_section": "radar",
+            "digest_section_name": "第一部分：AI 产品 + 爆火开源项目雷达",
+            "digest_section_order": 0,
+        }
+    )
+    other = _make_item(2)
+    other.metadata.update(
+        {
+            "digest_section": "other",
+            "digest_section_name": "第二部分：其他 AI 前沿资讯",
+            "digest_section_order": 1,
+        }
+    )
+
+    result = _run_async(
+        summarizer.generate_summary(
+            [radar, other],
+            date="2026-04-25",
+            total_fetched=10,
+            language="zh",
+        )
+    )
+
+    assert "## 目录" in result
+    assert "## 第一部分：AI 产品 + 爆火开源项目雷达（1）" in result
+    assert "## 第二部分：其他 AI 前沿资讯（1）" in result
+    assert "### [Important Item 1]" in result
+    assert result.index("第一部分：AI 产品") < result.index("第二部分：其他 AI")
+
+
+def test_generate_webhook_section_overviews_keeps_sections_separate():
+    summarizer = DailySummarizer()
+    radar = _make_item(1)
+    radar.metadata.update(
+        {
+            "digest_section": "radar",
+            "digest_section_name": "第一部分：AI 产品 + 爆火开源项目雷达",
+            "digest_section_order": 0,
+            "radar_source": "producthunt",
+        }
+    )
+    other = _make_item(2)
+    other.metadata.update(
+        {
+            "digest_section": "other",
+            "digest_section_name": "第二部分：其他 AI 前沿资讯",
+            "digest_section_order": 1,
+        }
+    )
+
+    results = summarizer.generate_webhook_section_overviews(
+        [radar, other],
+        date="2026-04-25",
+        total_fetched=10,
+        language="zh",
+    )
+
+    assert len(results) == 2
+    assert results[0]["section_key"] == "radar"
+    assert "Important Item 1" in results[0]["summary"]
+    assert "producthunt" in results[0]["summary"]
+    assert "Important Item 2" not in results[0]["summary"]
+    assert results[1]["section_key"] == "other"
+    assert "Important Item 2" in results[1]["summary"]
+
+
+def test_generate_webhook_section_overviews_splits_large_sections_without_drops():
+    summarizer = DailySummarizer()
+    items = []
+    for index in range(1, 31):
+        item = _make_item(index)
+        item.title = f"Important Item {index} " + ("AI product " * 8)
+        item.metadata.update(
+            {
+                "digest_section": "radar",
+                "digest_section_name": "AI Products",
+                "digest_section_order": 0,
+            }
+        )
+        items.append(item)
+
+    results = summarizer.generate_webhook_section_overviews(
+        items,
+        date="2026-04-25",
+        total_fetched=50,
+        language="en",
+        max_bytes=4_000,
+    )
+
+    assert len(results) > 1
+    assert all(len(result["summary"].encode("utf-8")) < 4_000 for result in results)
+    combined = "\n".join(result["summary"] for result in results)
+    assert "Important Item 1 " in combined
+    assert "Important Item 30 " in combined
+
+
 def test_generate_empty_summary_zh_uses_localized_analyzed_line():
     summarizer = DailySummarizer()
 

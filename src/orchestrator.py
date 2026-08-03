@@ -14,7 +14,13 @@ from .storage.manager import StorageManager
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
 from .scrapers.github import GitHubScraper
-from .scrapers.hackernews import HackerNewsScraper
+from .scrapers.hackernews import HackerNewsScraper, ShowHNScraper
+from .scrapers.trending import GitHubTrendingScraper, TrendshiftScraper
+from .scrapers.product_radar import (
+    HuggingFaceSpacesScraper,
+    ProductHuntScraper,
+    YCProductsScraper,
+)
 from .scrapers.rss import RSSScraper
 from .scrapers.reddit import RedditScraper
 from .scrapers.telegram import TelegramScraper
@@ -39,6 +45,8 @@ class BalancedDigestResult:
     enabled: bool = False
     group_counts: Dict[str, int] = field(default_factory=dict)
     group_limits: Dict[str, Optional[int]] = field(default_factory=dict)
+    section_counts: Dict[str, int] = field(default_factory=dict)
+    section_limits: Dict[str, int] = field(default_factory=dict)
     duplicate_categories: List[str] = field(default_factory=list)
 
 
@@ -107,14 +115,25 @@ class HorizonOrchestrator:
 
             # 5. Filter by score threshold
             threshold = self.config.filtering.ai_score_threshold
+            backfill_threshold = self.config.filtering.digest_backfill_score_threshold
+            selection_threshold = (
+                min(threshold, backfill_threshold)
+                if backfill_threshold is not None
+                else threshold
+            )
             important_items = [
                 item for item in analyzed_items
-                if item.ai_score and item.ai_score >= threshold
+                if item.ai_score and item.ai_score >= selection_threshold
             ]
             important_items.sort(key=lambda x: x.ai_score or 0, reverse=True)
 
             self.console.print(
-                f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
+                f"⭐️ {len(important_items)} items scored ≥ {selection_threshold}"
+                + (
+                    f" (primary threshold {threshold}; lower scores only fill open digest slots)\n"
+                    if selection_threshold < threshold
+                    else "\n"
+                )
             )
 
             # 5.5 Semantic deduplication: drop items covering the same topic
@@ -263,15 +282,65 @@ class HorizonOrchestrator:
                 github_scraper = GitHubScraper(self.config.sources.github, client)
                 tasks.append(self._fetch_with_progress("GitHub", github_scraper, since))
 
+            if self.config.sources.github_trending.enabled:
+                github_trending_scraper = GitHubTrendingScraper(
+                    self.config.sources.github_trending, client
+                )
+                tasks.append(
+                    self._fetch_with_progress(
+                        "GitHub Trending", github_trending_scraper, since
+                    )
+                )
+
+            if self.config.sources.trendshift.enabled:
+                trendshift_scraper = TrendshiftScraper(
+                    self.config.sources.trendshift, client
+                )
+                tasks.append(
+                    self._fetch_with_progress("Trendshift", trendshift_scraper, since)
+                )
+
             # Hacker News
             if self.config.sources.hackernews.enabled:
                 hn_scraper = HackerNewsScraper(self.config.sources.hackernews, client)
                 tasks.append(self._fetch_with_progress("Hacker News", hn_scraper, since))
 
+            if self.config.sources.show_hn.enabled:
+                show_hn_scraper = ShowHNScraper(self.config.sources.show_hn, client)
+                tasks.append(
+                    self._fetch_with_progress("Show HN", show_hn_scraper, since)
+                )
+
             # RSS feeds
             if self.config.sources.rss:
                 rss_scraper = RSSScraper(self.config.sources.rss, client)
                 tasks.append(self._fetch_with_progress("RSS Feeds", rss_scraper, since))
+
+            if self.config.sources.producthunt.enabled:
+                producthunt_scraper = ProductHuntScraper(
+                    self.config.sources.producthunt, client
+                )
+                tasks.append(
+                    self._fetch_with_progress("Product Hunt", producthunt_scraper, since)
+                )
+
+            if self.config.sources.yc_products.enabled:
+                yc_products_scraper = YCProductsScraper(
+                    self.config.sources.yc_products, client
+                )
+                tasks.append(
+                    self._fetch_with_progress("YC Launches", yc_products_scraper, since)
+                )
+
+            if self.config.sources.huggingface_spaces.enabled:
+                hf_spaces_scraper = HuggingFaceSpacesScraper(
+                    self.config.sources.huggingface_spaces, client
+                )
+                tasks.append(
+                    self._fetch_with_progress(
+                        "Hugging Face Spaces", hf_spaces_scraper, since
+                    )
+                )
 
             # Reddit
             if self.config.sources.reddit.enabled:
@@ -354,6 +423,8 @@ class HorizonOrchestrator:
     def _sub_source_label(item: ContentItem) -> str:
         """Return a human-readable sub-source label for an item."""
         meta = item.metadata
+        if meta.get("radar_source"):
+            return meta["radar_source"]
         if meta.get("subreddit"):
             return f"r/{meta['subreddit']}"
         if meta.get("feed_name"):
@@ -413,10 +484,16 @@ class HorizonOrchestrator:
 
             # Merge metadata and source info from other items
             all_sources = set()
+            radar_signals: list[dict] = []
             for item in group:
                 all_sources.add(item.source_type.value)
+                for signal in item.metadata.get("radar_signals") or []:
+                    if isinstance(signal, dict) and signal not in radar_signals:
+                        radar_signals.append(signal)
                 # Merge metadata (engagement, discussion, etc.)
                 for mk, mv in item.metadata.items():
+                    if mk == "radar_signals":
+                        continue
                     if mk not in primary.metadata or not primary.metadata[mk]:
                         primary.metadata[mk] = mv
 
@@ -425,7 +502,12 @@ class HorizonOrchestrator:
                     if primary.content and item.content not in primary.content:
                         primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
 
-            primary.metadata["merged_sources"] = list(all_sources)
+            primary.metadata["merged_sources"] = sorted(all_sources)
+            if radar_signals:
+                primary.metadata["radar_signals"] = radar_signals
+                primary.metadata["radar_source_count"] = len(
+                    {signal.get("source") for signal in radar_signals if signal.get("source")}
+                )
             merged.append(primary)
 
         return merged
@@ -517,9 +599,10 @@ class HorizonOrchestrator:
         """
         filtering = self.config.filtering
         groups = filtering.category_groups
+        sections = filtering.digest_sections
         max_items = filtering.max_items
 
-        if not groups and max_items is None:
+        if not groups and not sections and max_items is None:
             return BalancedDigestResult(items=items)
 
         sorted_items = sorted(
@@ -546,10 +629,35 @@ class HorizonOrchestrator:
                     f"groups; using '{first_group}'.[/yellow]"
                 )
 
-        selected: List[tuple[ContentItem, str]] = []
-        group_counts: Dict[str, int] = defaultdict(int)
-        default_group = filtering.default_group
+        group_to_section: Dict[str, str] = {}
+        duplicate_section_groups: List[str] = []
+        for section_key, section in sections.items():
+            for group_key in section.groups:
+                if group_key in group_to_section:
+                    if group_to_section[group_key] != section_key:
+                        duplicate_section_groups.append(group_key)
+                    continue
+                group_to_section[group_key] = section_key
 
+        if filtering.default_section and filtering.default_group not in group_to_section:
+            group_to_section[filtering.default_group] = filtering.default_section
+
+        if log:
+            for group_key in sorted(set(duplicate_section_groups)):
+                self.console.print(
+                    f"[yellow]Warning: group '{group_key}' is configured in multiple "
+                    f"digest sections; using '{group_to_section[group_key]}'.[/yellow]"
+                )
+            for section_key, section in sections.items():
+                for group_key in section.groups:
+                    if group_key not in groups and group_key != filtering.default_group:
+                        self.console.print(
+                            f"[yellow]Warning: digest section '{section_key}' references "
+                            f"unknown group '{group_key}'.[/yellow]"
+                        )
+
+        classified: List[tuple[ContentItem, str, Optional[str], str]] = []
+        default_group = filtering.default_group
         for item in sorted_items:
             category = item.metadata.get("category")
             group_key = (
@@ -557,24 +665,106 @@ class HorizonOrchestrator:
                 if isinstance(category, str)
                 else default_group
             )
+            section_key = group_to_section.get(group_key)
+            if (
+                section_key in sections
+                and sections[section_key].min_score is not None
+                and (item.ai_score or 0) < sections[section_key].min_score
+            ):
+                continue
+            source_key = str(
+                item.metadata.get("radar_source") or item.source_type.value
+            )
+            classified.append((item, group_key, section_key, source_key))
 
+        selected: List[tuple[ContentItem, str, Optional[str], str]] = []
+        selected_ids: set[str] = set()
+        group_counts: Dict[str, int] = defaultdict(int)
+        section_counts: Dict[str, int] = defaultdict(int)
+        group_source_counts: Dict[tuple[str, str], int] = defaultdict(int)
+
+        # First pass honors category-group limits. When sections are configured,
+        # those limits are preferred allocations rather than hard caps.
+        for item, group_key, section_key, source_key in classified:
             if group_key in groups:
                 limit = groups[group_key].limit
+                source_limit = groups[group_key].source_limits.get(source_key)
             else:
                 limit = filtering.default_group_limit
+                source_limit = None
 
+            if section_key in sections:
+                section_limit = sections[section_key].limit
+                if section_counts[section_key] >= section_limit:
+                    continue
             if limit is not None and group_counts[group_key] >= limit:
                 continue
+            if (
+                source_limit is not None
+                and group_source_counts[(group_key, source_key)] >= source_limit
+            ):
+                continue
 
-            selected.append((item, group_key))
+            selected.append((item, group_key, section_key, source_key))
+            selected_ids.add(item.id)
             group_counts[group_key] += 1
+            group_source_counts[(group_key, source_key)] += 1
+            if section_key:
+                section_counts[section_key] += 1
+
+        # Second pass fills unused capacity from another group in the same
+        # section. This prevents an empty lane from shrinking the whole digest.
+        if sections:
+            for section_key, section in sections.items():
+                if section_counts[section_key] >= section.limit:
+                    continue
+                for item, group_key, item_section, source_key in classified:
+                    if item_section != section_key or item.id in selected_ids:
+                        continue
+                    source_limit = (
+                        groups[group_key].source_limits.get(source_key)
+                        if group_key in groups
+                        else None
+                    )
+                    if (
+                        source_limit is not None
+                        and group_source_counts[(group_key, source_key)] >= source_limit
+                    ):
+                        continue
+                    selected.append((item, group_key, section_key, source_key))
+                    selected_ids.add(item.id)
+                    group_counts[group_key] += 1
+                    group_source_counts[(group_key, source_key)] += 1
+                    section_counts[section_key] += 1
+                    if section_counts[section_key] >= section.limit:
+                        break
 
         if max_items is not None:
             selected = selected[:max_items]
 
+        if sections:
+            section_order = {key: index for index, key in enumerate(sections)}
+            selected.sort(
+                key=lambda entry: (
+                    section_order.get(entry[2], len(section_order)),
+                    -(entry[0].ai_score or 0),
+                )
+            )
+
         final_counts: Dict[str, int] = defaultdict(int)
-        for _, group_key in selected:
+        final_section_counts: Dict[str, int] = defaultdict(int)
+        final_source_counts: Dict[tuple[str, str], int] = defaultdict(int)
+        for item, group_key, section_key, source_key in selected:
             final_counts[group_key] += 1
+            final_source_counts[(group_key, source_key)] += 1
+            item.metadata["digest_group"] = group_key
+            if section_key and section_key in sections:
+                final_section_counts[section_key] += 1
+                item.metadata["digest_section"] = section_key
+                item.metadata["digest_section_name"] = (
+                    sections[section_key].name or section_key
+                )
+                item.metadata["digest_section_order"] = section_order[section_key]
 
         group_limits: Dict[str, Optional[int]] = {
             group_key: group.limit for group_key, group in groups.items()
@@ -585,12 +775,25 @@ class HorizonOrchestrator:
             self.console.print(
                 f"⚖️ Balanced digest selected {len(selected)}/{len(items)} items"
             )
+            for section_key, section in sections.items():
+                label = section.name or section_key
+                self.console.print(
+                    f"      ▸ {label}: "
+                    f"{final_section_counts.get(section_key, 0)}/{section.limit}"
+                )
             for group_key, group in groups.items():
                 label = group.name or group_key
+                target_label = "preferred" if group_key in group_to_section else "limit"
                 self.console.print(
-                    f"      • {label}: {final_counts.get(group_key, 0)}/{group.limit}"
+                    f"      • {label}: {final_counts.get(group_key, 0)}/{group.limit} "
+                    f"{target_label}"
                 )
-            if (
+                for source_key, source_limit in group.source_limits.items():
+                    self.console.print(
+                        f"          - {source_key}: "
+                        f"{final_source_counts.get((group_key, source_key), 0)}/{source_limit} max"
+                    )
+            if default_group not in groups and (
                 final_counts.get(default_group, 0)
                 or filtering.default_group_limit is not None
             ):
@@ -606,10 +809,12 @@ class HorizonOrchestrator:
             self.console.print("")
 
         return BalancedDigestResult(
-            items=[item for item, _ in selected],
+            items=[item for item, _, _, _ in selected],
             enabled=True,
             group_counts=dict(final_counts),
             group_limits=group_limits,
+            section_counts=dict(final_section_counts),
+            section_limits={key: section.limit for key, section in sections.items()},
             duplicate_categories=sorted(set(duplicate_categories)),
         )
 

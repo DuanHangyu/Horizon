@@ -8,6 +8,7 @@ configured languages flow through.
 """
 
 from datetime import datetime, timezone
+import re
 from typing import List, Optional
 
 import httpx
@@ -125,6 +126,19 @@ class OSSInsightScraper(BaseScraper):
                 "period": self.cfg.period,
                 "collection_names": collections,
                 "description": description,
+                "category": self.cfg.category,
+                "discovery_type": "star_velocity",
+                "radar_source": "ossinsight",
+                "radar_signals": [
+                    {
+                        "source": "ossinsight",
+                        "period": self.cfg.period,
+                        "stars_gained": stars_gained,
+                        "forks_gained": self._int(row.get("forks")),
+                        "pushes": self._int(row.get("pushes")),
+                        "pull_requests": self._int(row.get("pull_requests")),
+                    }
+                ],
             },
         )
 
@@ -150,4 +164,10 @@ class OSSInsightScraper(BaseScraper):
                 (row.get("repo_name") or "").lower(),
             ]
         )
-        return any(kw in haystack for kw in self._keywords_lower)
+        for keyword in self._keywords_lower:
+            if len(keyword) <= 3 and keyword.isalnum():
+                if re.search(rf"\b{re.escape(keyword)}\b", haystack):
+                    return True
+            elif keyword in haystack:
+                return True
+        return False

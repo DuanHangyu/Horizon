@@ -203,14 +203,24 @@ class HorizonPipelineService:
             },
             "filtering": {
                 "ai_score_threshold": ctx.config.filtering.ai_score_threshold,
+                "digest_backfill_score_threshold": getattr(
+                    ctx.config.filtering,
+                    "digest_backfill_score_threshold",
+                    None,
+                ),
                 "time_window_hours": ctx.config.filtering.time_window_hours,
                 "max_items": ctx.config.filtering.max_items,
                 "category_groups": {
                     key: group.model_dump(mode="json")
                     for key, group in ctx.config.filtering.category_groups.items()
                 },
+                "digest_sections": {
+                    key: section.model_dump(mode="json")
+                    for key, section in ctx.config.filtering.digest_sections.items()
+                },
                 "default_group": ctx.config.filtering.default_group,
                 "default_group_limit": ctx.config.filtering.default_group_limit,
+                "default_section": ctx.config.filtering.default_section,
             },
             "enabled_sources": get_enabled_sources(ctx.config),
             "selected_sources": selected_sources,
@@ -344,6 +354,7 @@ class HorizonPipelineService:
         filtering = ctx.config.filtering
         balanced_enabled = bool(
             getattr(filtering, "category_groups", {})
+            or getattr(filtering, "digest_sections", {})
             or getattr(filtering, "max_items", None) is not None
         )
         balanced_group_counts: dict[str, int] = {}

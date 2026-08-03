@@ -18,12 +18,21 @@ from .errors import HorizonMcpError
 
 VALID_SOURCES = {
     "github",
+    "github_trending",
+    "trendshift",
     "hackernews",
+    "show_hn",
     "rss",
+    "producthunt",
+    "yc_products",
+    "huggingface_spaces",
     "reddit",
     "telegram",
     "twitter",
     "openbb",
+    "ossinsight",
+    "gdelt",
+    "google_news",
 }
 ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
@@ -198,10 +207,22 @@ def apply_source_filter(
 
     if "github" not in wanted:
         clone.sources.github = []
+    if "github_trending" not in wanted:
+        clone.sources.github_trending.enabled = False
+    if "trendshift" not in wanted:
+        clone.sources.trendshift.enabled = False
     if "hackernews" not in wanted:
         clone.sources.hackernews.enabled = False
+    if "show_hn" not in wanted:
+        clone.sources.show_hn.enabled = False
     if "rss" not in wanted:
         clone.sources.rss = []
+    if "producthunt" not in wanted:
+        clone.sources.producthunt.enabled = False
+    if "yc_products" not in wanted:
+        clone.sources.yc_products.enabled = False
+    if "huggingface_spaces" not in wanted:
+        clone.sources.huggingface_spaces.enabled = False
     if "reddit" not in wanted:
         clone.sources.reddit.enabled = False
         clone.sources.reddit.subreddits = []
@@ -215,6 +236,12 @@ def apply_source_filter(
     if "openbb" not in wanted and getattr(clone.sources, "openbb", None):
         clone.sources.openbb.enabled = False
         clone.sources.openbb.watchlists = []
+    if "ossinsight" not in wanted:
+        clone.sources.ossinsight.enabled = False
+    if "gdelt" not in wanted and getattr(clone.sources, "gdelt", None):
+        clone.sources.gdelt.enabled = False
+    if "google_news" not in wanted and getattr(clone.sources, "google_news", None):
+        clone.sources.google_news.enabled = False
 
     return clone, chosen, unknown
 
@@ -225,10 +252,22 @@ def get_enabled_sources(config: Any) -> list[str]:
     enabled: list[str] = []
     if getattr(config.sources, "github", None):
         enabled.append("github")
+    if getattr(config.sources.github_trending, "enabled", False):
+        enabled.append("github_trending")
+    if getattr(config.sources.trendshift, "enabled", False):
+        enabled.append("trendshift")
     if getattr(config.sources.hackernews, "enabled", False):
         enabled.append("hackernews")
+    if getattr(config.sources.show_hn, "enabled", False):
+        enabled.append("show_hn")
     if getattr(config.sources, "rss", None):
         enabled.append("rss")
+    if getattr(config.sources.producthunt, "enabled", False):
+        enabled.append("producthunt")
+    if getattr(config.sources.yc_products, "enabled", False):
+        enabled.append("yc_products")
+    if getattr(config.sources.huggingface_spaces, "enabled", False):
+        enabled.append("huggingface_spaces")
     if getattr(config.sources.reddit, "enabled", False):
         enabled.append("reddit")
     if getattr(config.sources.telegram, "enabled", False):
@@ -237,6 +276,12 @@ def get_enabled_sources(config: Any) -> list[str]:
         enabled.append("twitter")
     if getattr(getattr(config.sources, "openbb", None), "enabled", False):
         enabled.append("openbb")
+    if getattr(config.sources.ossinsight, "enabled", False):
+        enabled.append("ossinsight")
+    if getattr(getattr(config.sources, "gdelt", None), "enabled", False):
+        enabled.append("gdelt")
+    if getattr(getattr(config.sources, "google_news", None), "enabled", False):
+        enabled.append("google_news")
     return enabled
 
 

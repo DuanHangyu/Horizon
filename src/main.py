@@ -122,11 +122,14 @@ def print_config_template():
   },
   "filtering": {
     "ai_score_threshold": 7.0,
+    "digest_backfill_score_threshold": null,
     "time_window_hours": 24,
     "max_items": null,
     "category_groups": {},
+    "digest_sections": {},
     "default_group": "other",
-    "default_group_limit": null
+    "default_group_limit": null,
+    "default_section": null
   }
 }
 

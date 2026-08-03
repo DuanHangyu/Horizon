@@ -233,6 +233,63 @@ All sources are configured under the top-level `sources` key in `config.json`.
 }
 ```
 
+### AI Product and Open-Source Radar
+
+```json
+{
+  "sources": {
+    "github_trending": {
+      "enabled": true,
+      "period": "daily",
+      "languages": ["", "python", "typescript"],
+      "max_items": 30,
+      "ai_only": true,
+      "category": "github-trending"
+    },
+    "trendshift": {
+      "enabled": true,
+      "period": "daily",
+      "api_token_env": "TRENDSHIFT_API_TOKEN",
+      "max_items": 30,
+      "ai_only": true,
+      "category": "github-trending"
+    },
+    "producthunt": {
+      "enabled": true,
+      "api_token_env": "PRODUCTHUNT_TOKEN",
+      "max_items": 20,
+      "category": "startup-products"
+    },
+    "yc_products": {
+      "enabled": true,
+      "ai_only": true,
+      "validate_ai_directory": true,
+      "max_items": 20,
+      "category": "startup-products"
+    },
+    "huggingface_spaces": {
+      "enabled": true,
+      "min_likes": 10,
+      "max_age_days": 30,
+      "max_items": 20,
+      "category": "ai-products"
+    },
+    "show_hn": {
+      "enabled": true,
+      "fetch_top_stories": 50,
+      "min_score": 10,
+      "category": "startup-products"
+    }
+  }
+}
+```
+
+`PRODUCTHUNT_TOKEN` and `TRENDSHIFT_API_TOKEN` are optional. Without them,
+Horizon uses Product Hunt's public feed and Trendshift's public ranking page.
+Those fallbacks have fewer engagement fields. YC Launches and the YC AI company
+directory are public but undocumented site interfaces, so their adapters fail
+open without stopping the rest of a daily run.
+
 ### RSS Feeds
 
 ```json
@@ -422,13 +479,15 @@ Content is scored 0-10:
 {
   "filtering": {
     "ai_score_threshold": 7.0,
+    "digest_backfill_score_threshold": 6.0,
     "time_window_hours": 24,
     "max_items": 20,
     "category_groups": {
       "ai": {
         "name": "AI / Machine Learning",
         "limit": 5,
-        "categories": ["ai-news", "ai-tools", "machine-learning", "llm"]
+        "categories": ["ai-news", "ai-tools", "machine-learning", "llm"],
+        "source_limits": {"producthunt": 3, "show_hn": 3}
       },
       "finance": {
         "name": "Finance",
@@ -436,32 +495,59 @@ Content is scored 0-10:
         "categories": ["finance", "equities", "crypto"]
       }
     },
+    "digest_sections": {
+      "radar": {
+        "name": "AI Products + OSS Radar",
+        "limit": 10,
+        "groups": ["ai"],
+        "min_score": 7.0
+      },
+      "other": {
+        "name": "Other Updates",
+        "limit": 10,
+        "groups": ["finance", "other"]
+      }
+    },
     "default_group": "other",
-    "default_group_limit": 3
+    "default_group_limit": 3,
+    "default_section": "other"
   }
 }
 ```
 
 - `ai_score_threshold`: Only include content scoring >= this value
+- `digest_backfill_score_threshold`: Optional lower floor used only to fill
+  otherwise-empty digest allocations. Higher-scoring items are always selected
+  first. Leave unset to enforce `ai_score_threshold` strictly.
 - `time_window_hours`: Fetch content from last N hours
 - `max_items`: Optional final cap after all group limits are applied
 - `category_groups`: Optional map of quota groups. Each group requires a positive
   `limit` and a non-empty `categories` list. Items within each group are kept by
   AI score, highest first.
 - `category_groups.*.name`: Optional display name used in run logs
+- `category_groups.*.source_limits`: Optional hard per-source caps keyed by
+  `radar_source`; the caps also apply during section backfill.
+- `digest_sections`: Optional top-level report sections. Each section has a hard
+  `limit` and lists the category-group keys it contains. Group limits become
+  preferred allocations inside a section; unused slots are filled by the
+  highest-scoring remaining items from another group in the same section.
+- `digest_sections.*.min_score`: Optional hard score floor for one report
+  section. This lets the radar stay at 7.0 while a separate news section may use
+  the lower digest backfill floor.
 - `default_group`: Group key for items whose category does not match any
   configured group. Default is `other`.
 - `default_group_limit`: Optional positive limit for unmatched items. If omitted,
   unmatched items are unlimited except for `max_items`.
+- `default_section`: Optional section key for the default group.
 
 Balanced digest filtering runs after AI score threshold filtering and topic
 deduplication, but before enrichment. This reduces enrichment calls to only the
 items that can appear in the final digest.
 
 Group matching uses the source category stored in `ContentItem.metadata.category`.
-RSS sources expose this through `sources.rss[].category`, and OpenBB watchlists
-through `sources.openbb.watchlists[].category`. Sources without a category enter
-the default group.
+RSS sources, GitHub source entries, OSSInsight, GDELT, Google News, and OpenBB
+watchlists expose configurable categories. Sources without a category enter the
+default group.
 
 If the same category appears in multiple groups, Horizon logs a warning and uses
 the first group in configuration order. Omitting both `category_groups` and
@@ -577,12 +663,14 @@ Webhook notification is optional and disabled unless `webhook.enabled` is `true`
 
 - `enabled`: Turns webhook delivery on or off. The default is `false`.
 - `url_env`: Environment variable that contains the webhook URL. For example, set `HORIZON_WEBHOOK_URL=https://...` in `.env`.
-- `delivery`: Controls how messages are sent. Use `summary` for one full message, or `summary_and_items` for one overview message followed by one message per selected item.
+- `delivery`: Controls how messages are sent. Use `summary` for one full message, `summary_and_items` for one overview plus one message per selected item, or `section_overviews` for one compact title-and-link message per digest section.
 - `overview_position`: Controls where the overview is sent in `summary_and_items` mode. Use `first` for the traditional order, or `last` to send item details in reverse and keep the overview as the newest chat message.
 - `platform`: Optional webhook platform hint. Use `generic` by default, or `feishu` / `lark` to enable platform-specific card rendering.
 - `layout`: Controls the message layout. Use `markdown` for templated Markdown delivery, or `collapsible` with `platform: "feishu"` / `"lark"` for a single Feishu Card JSON 2.0 message with each item in a collapsed panel.
 - `fallback_layout`: Reserved fallback layout for unsupported platform/layout combinations. The current safe fallback is `markdown`.
 - `languages`: Optional webhook-only language filter. Use `["zh"]` or `["en"]` to send only selected languages; use `null` or omit it to send all configured `ai.languages`.
+- `section_max_bytes`: Byte budget for each `section_overviews` Markdown body. The default is `14000`, leaving headroom below Feishu's 20 KB request limit. Oversized sections are split without dropping items.
+- `send_interval_sec`: Delay between consecutive webhook messages. Use `0.3` for Feishu to stay below burst limits.
 - `request_body`: Optional request body. If empty, Horizon sends a `GET` request. If provided, Horizon sends a `POST` request.
 - `headers`: Optional custom headers, one `Key: Value` pair per line.
 
@@ -594,6 +682,7 @@ When `request_body` is a JSON object or array, Horizon renders placeholders and 
 
 - `summary`: Sends one message containing the full daily summary. This is simple, but some chat platforms may reject long messages.
 - `summary_and_items`: Sends one overview message plus one message per selected item. In each item message, `#{summary}` contains only that item's Markdown body. This is useful for platforms that reject or truncate long messages.
+- `section_overviews`: Sends one compact overview per configured digest section. Each overview lists that section's titles, scores, sources, and links. Large sections are split automatically according to `section_max_bytes`.
 
 `layout` controls how each message is rendered:
 
@@ -621,6 +710,36 @@ Example `summary_and_items` Markdown delivery config:
 ```
 
 With `summary_and_items`, Horizon sends one overview plus one message per selected item. `overview_position: "last"` sends item messages first and keeps the overview as the newest chat message; omit it or set `"first"` to send the overview first.
+
+Example Feishu delivery for a briefing split into top-level digest sections:
+
+```json
+{
+  "webhook": {
+    "enabled": true,
+    "url_env": "HORIZON_WEBHOOK_URL",
+    "delivery": "section_overviews",
+    "platform": "feishu",
+    "layout": "markdown",
+    "languages": ["zh"],
+    "section_max_bytes": 14000,
+    "send_interval_sec": 0.3,
+    "request_body": {
+      "msg_type": "interactive",
+      "card": {
+        "schema": "2.0",
+        "header": {
+          "title": {"tag": "plain_text", "content": "#{message_title}"},
+          "template": "blue"
+        },
+        "body": {
+          "elements": [{"tag": "markdown", "content": "#{summary}"}]
+        }
+      }
+    }
+  }
+}
+```
 
 ### Webhook Templates
 

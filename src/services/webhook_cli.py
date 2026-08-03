@@ -37,6 +37,10 @@ def _make_test_items() -> list[ContentItem]:
             metadata={
                 "title_zh": "GPT-5 发布：多模态能力大幅提升",
                 "detailed_summary_zh": "OpenAI 发布了 GPT-5，具备多模态能力和更强的推理能力。",
+                "digest_section": "radar",
+                "digest_section_name": "第一部分：AI 产品 + 爆火开源项目雷达",
+                "digest_section_order": 0,
+                "radar_source": "github_trending",
             },
         ),
         ContentItem(
@@ -54,6 +58,9 @@ def _make_test_items() -> list[ContentItem]:
             metadata={
                 "title_zh": "Linux 内核 7.0 发布",
                 "detailed_summary_zh": "Linux 内核 7.0 发布，带来显著性能提升和新硬件支持。",
+                "digest_section": "other",
+                "digest_section_name": "第二部分：其他 AI 前沿资讯",
+                "digest_section_order": 1,
             },
         ),
     ]
@@ -172,7 +179,7 @@ def main() -> None:
     parser.add_argument(
         "--delivery",
         default=None,
-        choices=["summary", "summary_and_items"],
+        choices=["summary", "summary_and_items", "section_overviews"],
         help="Override the delivery mode from config for this test.",
     )
     args = parser.parse_args()

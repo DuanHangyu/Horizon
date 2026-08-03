@@ -1,126 +1,343 @@
 {
   "version": "1.0",
   "ai": {
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash",
-    "base_url": "https://api.deepseek.com",
-    "api_key_env": "DEEPSEEK_API_KEY",
+    "provider": "ali",
+    "model": "qwen-plus",
+    "api_key_env": "DASHSCOPE_API_KEY",
     "temperature": 0.3,
-    "max_tokens": 8192,
-    "throttle_sec": 1,
-    "languages": [
-      "zh",
-      "en"
-    ],
-    "analysis_concurrency": 5,
-    "enrichment_concurrency": 5
+    "max_tokens": 4096,
+    "analysis_concurrency": 4,
+    "enrichment_concurrency": 2,
+    "languages": ["zh"]
   },
   "sources": {
-    "github": [
-      {
-        "type": "user_events",
-        "username": "karpathy",
-        "enabled": true
-      },
-      {
-        "type": "repo_releases",
-        "owner": "vllm-project",
-        "repo": "vllm",
-        "enabled": true
-      },
-      {
-        "type": "repo_releases",
-        "owner": "sgl-project",
-        "repo": "sglang",
-        "enabled": true
-      },
-      {
-        "type": "repo_releases",
-        "owner": "triton-lang",
-        "repo": "triton",
-        "enabled": true
-      }
-    ],
+    "github": [],
+    "github_trending": {
+      "enabled": true,
+      "period": "daily",
+      "languages": ["", "python", "typescript"],
+      "max_items": 30,
+      "ai_only": true,
+      "category": "github-trending"
+    },
+    "trendshift": {
+      "enabled": true,
+      "period": "daily",
+      "max_items": 30,
+      "api_token_env": "TRENDSHIFT_API_TOKEN",
+      "ai_only": true,
+      "category": "github-trending"
+    },
     "hackernews": {
       "enabled": true,
-      "fetch_top_stories": 30,
-      "min_score": 150
+      "fetch_top_stories": 15,
+      "min_score": 300
+    },
+    "show_hn": {
+      "enabled": true,
+      "fetch_top_stories": 50,
+      "min_score": 10,
+      "ai_only": true,
+      "category": "startup-products"
+    },
+    "producthunt": {
+      "enabled": true,
+      "max_items": 20,
+      "api_token_env": "PRODUCTHUNT_TOKEN",
+      "ai_only": true,
+      "category": "startup-products"
+    },
+    "yc_products": {
+      "enabled": true,
+      "max_items": 20,
+      "ai_only": true,
+      "validate_ai_directory": true,
+      "category": "startup-products"
+    },
+    "huggingface_spaces": {
+      "enabled": true,
+      "max_items": 20,
+      "min_likes": 10,
+      "max_age_days": 30,
+      "category": "ai-products"
     },
     "rss": [
+      {
+        "name": "OpenAI News",
+        "url": "https://openai.com/news/rss.xml",
+        "enabled": true,
+        "category": "ai-frontier"
+      },
+      {
+        "name": "Google DeepMind",
+        "url": "https://deepmind.google/blog/rss.xml",
+        "enabled": true,
+        "category": "ai-frontier"
+      },
+      {
+        "name": "Hugging Face Blog",
+        "url": "https://news.google.com/rss/search?q=site%3Ahuggingface.co%2Fblog&hl=en-US&gl=US&ceid=US%3Aen",
+        "enabled": true,
+        "category": "ai-products"
+      },
+      {
+        "name": "Anthropic, Mistral, Qwen & DeepSeek Official News",
+        "url": "https://news.google.com/rss/search?q=%28site%3Aanthropic.com%2Fnews%20OR%20site%3Amistral.ai%2Fnews%20OR%20site%3Aqwenlm.github.io%2Fblog%20OR%20site%3Adeepseek.com%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "enabled": true,
+        "category": "ai-frontier"
+      },
+      {
+        "name": "Y Combinator Blog",
+        "url": "https://www.ycombinator.com/blog/rss.xml",
+        "enabled": true,
+        "category": "startup-ecosystem"
+      },
       {
         "name": "Simon Willison",
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
-        "category": "ai-tools"
+        "category": "fde-engineering"
       },
       {
-        "name": "GitHub Trending - Daily",
-        "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
+        "name": "Latent Space",
+        "url": "https://www.latent.space/feed",
         "enabled": true,
-        "category": "github-trending"
+        "category": "fde-engineering"
       },
       {
-        "name": "Semianalysis",
-        "url": "https://newsletter.semianalysis.com/feed",
+        "name": "NVIDIA Developer Blog",
+        "url": "https://developer.nvidia.com/blog/feed/",
         "enabled": true,
-        "category": "semiconductors"
+        "category": "fde-engineering"
       },
       {
-        "name": "LWN.net",
-        "url": "https://lwn.net/headlines/full_text?key=${LWN_KEY}",
+        "name": "Interconnects",
+        "url": "https://www.interconnects.ai/feed",
         "enabled": true,
-        "category": "linux-kernel"
+        "category": "industry-research"
+      },
+      {
+        "name": "SemiAnalysis",
+        "url": "https://www.semianalysis.com/feed",
+        "enabled": true,
+        "category": "industry-research"
+      },
+      {
+        "name": "Sequoia Capital",
+        "url": "https://www.sequoiacap.com/feed/",
+        "enabled": true,
+        "category": "industry-research"
       }
     ],
     "reddit": {
       "enabled": true,
       "subreddits": [
         {
-          "subreddit": "MachineLearning",
-          "enabled": true,
-          "sort": "hot",
-          "time_filter": "day",
-          "fetch_limit": 10,
-          "min_score": 60
-        },
-        {
           "subreddit": "LocalLLaMA",
           "enabled": true,
           "sort": "hot",
           "time_filter": "day",
-          "fetch_limit": 10,
-          "min_score": 60
+          "fetch_limit": 6,
+          "min_score": 50
+        },
+        {
+          "subreddit": "MachineLearning",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 6,
+          "min_score": 30
+        },
+        {
+          "subreddit": "MLOps",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 6,
+          "min_score": 10
+        },
+        {
+          "subreddit": "AI_Agents",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 6,
+          "min_score": 10
+        },
+        {
+          "subreddit": "SaaS",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 6,
+          "min_score": 30
         }
       ],
       "users": [],
-      "fetch_comments": 10
+      "fetch_comments": 3
     },
     "telegram": {
       "enabled": true,
       "channels": [
         {
-          "channel": "zaihuapd",
+          "channel": "NewlearnerChannel",
           "enabled": true,
-          "fetch_limit": 20
+          "fetch_limit": 8
+        },
+        {
+          "channel": "aigc1024",
+          "enabled": true,
+          "fetch_limit": 8
         }
       ]
+    },
+    "twitter": {
+      "enabled": false,
+      "mode": "apify",
+      "users": [
+        "OpenAI",
+        "AnthropicAI",
+        "GoogleDeepMind",
+        "MistralAI",
+        "Alibaba_Qwen",
+        "huggingface",
+        "karpathy",
+        "simonw",
+        "HamelHusain",
+        "jxnlco",
+        "sh_reya",
+        "natolambert",
+        "swyx",
+        "ycombinator",
+        "garrytan"
+      ],
+      "fetch_limit": 15,
+      "fetch_reply_text": true,
+      "max_replies_per_tweet": 3,
+      "max_tweets_to_expand": 5,
+      "reply_min_likes": 10,
+      "apify_token_env": "APIFY_TOKEN"
+    },
+    "openbb": {
+      "enabled": false,
+      "watchlists": []
+    },
+    "ossinsight": {
+      "enabled": true,
+      "period": "past_24_hours",
+      "languages": ["All", "Python", "TypeScript", "Rust", "Go"],
+      "keywords": [
+        "ai",
+        "artificial intelligence",
+        "generative ai",
+        "machine learning",
+        "deep learning",
+        "llm",
+        "large language model",
+        "agent",
+        "agentic",
+        "mcp",
+        "rag",
+        "inference",
+        "multimodal",
+        "transformer",
+        "diffusion",
+        "vision language",
+        "embedding",
+        "vector database",
+        "copilot",
+        "coding assistant"
+      ],
+      "min_stars": 5,
+      "max_items": 30,
+      "category": "github-trending"
+    },
+    "gdelt": {
+      "enabled": false,
+      "query": "artificial intelligence",
+      "max_records": 20,
+      "timespan": "48h",
+      "category": "ai-products"
+    },
+    "google_news": {
+      "enabled": true,
+      "query": "(site:hai.stanford.edu OR site:mckinsey.com OR site:bcg.com OR site:bain.com OR site:pwc.com OR site:weforum.org OR site:a16z.com OR site:sequoiacap.com) (\"AI report\" OR \"AI index\" OR \"artificial intelligence report\") when:7d -jobs -careers -intern",
+      "language": "en",
+      "country": "US",
+      "max_results": 12,
+      "category": "industry-research"
     }
   },
   "filtering": {
-    "ai_score_threshold": 8.0,
-    "time_window_hours": 24
+    "ai_score_threshold": 7.0,
+    "digest_backfill_score_threshold": 6.0,
+    "time_window_hours": 48,
+    "max_items": 60,
+    "category_groups": {
+      "products": {
+        "name": "AI 新产品与应用",
+        "limit": 15,
+        "categories": ["ai-products", "startup-products"],
+        "source_limits": {
+          "producthunt": 5,
+          "yc_launches": 5,
+          "huggingface_spaces": 5,
+          "show_hn": 5
+        }
+      },
+      "github": {
+        "name": "GitHub 爆火 AI 项目",
+        "limit": 15,
+        "categories": ["github-trending"]
+      },
+      "frontier": {
+        "name": "前沿模型与研究",
+        "limit": 8,
+        "categories": ["ai-frontier"]
+      },
+      "research": {
+        "name": "行业研报与创业战略",
+        "limit": 8,
+        "categories": ["industry-research", "startup-ecosystem"]
+      },
+      "fde": {
+        "name": "FDE 与 AI 工程",
+        "limit": 7,
+        "categories": ["fde-engineering"]
+      },
+      "community": {
+        "name": "社区与创业者信号",
+        "limit": 7,
+        "categories": ["community"]
+      }
+    },
+    "digest_sections": {
+      "radar": {
+        "name": "第一部分：AI 产品 + 爆火开源项目雷达",
+        "limit": 30,
+        "groups": ["products", "github"],
+        "min_score": 7.0
+      },
+      "other": {
+        "name": "第二部分：其他 AI 前沿资讯",
+        "limit": 30,
+        "groups": ["frontier", "research", "fde", "community"]
+      }
+    },
+    "default_group": "community",
+    "default_group_limit": 7,
+    "default_section": "other"
   },
   "webhook": {
     "enabled": true,
     "url_env": "HORIZON_WEBHOOK_URL",
-    "delivery": "summary_and_items",
-    "overview_position": "last",
+    "delivery": "section_overviews",
     "platform": "feishu",
-    "layout": "collapsible",
+    "layout": "markdown",
     "fallback_layout": "markdown",
-    "languages": [
-      "zh"
-    ],
+    "languages": ["zh"],
+    "section_max_bytes": 14000,
+    "send_interval_sec": 0.3,
     "request_body": {
       "msg_type": "interactive",
       "card": {

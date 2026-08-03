@@ -411,6 +411,16 @@ class TestWebhookRedaction:
             "X-Trace": "ok",
         }
 
+    def test_redact_url_masks_feishu_path_token(self):
+        assert redact_url(
+            "https://open.feishu.cn/open-apis/bot/v2/hook/secret-token"
+        ) == "https://open.feishu.cn/open-apis/bot/v2/hook/<redacted>"
+
+    def test_redact_url_masks_slack_path_token(self):
+        assert redact_url(
+            "https://hooks.slack.com/services/T000/B000/secret"
+        ) == "https://hooks.slack.com/<redacted>"
+
 
 # ── WebhookNotifier ──
 
@@ -773,6 +783,8 @@ class TestWebhookConfigModel:
         assert config.platform == "generic"
         assert config.layout == "markdown"
         assert config.fallback_layout == "markdown"
+        assert config.section_max_bytes == 14_000
+        assert config.send_interval_sec == 0.0
 
     def test_full_config(self):
         config = WebhookConfig(
@@ -800,7 +812,9 @@ class TestWebhookConfigModel:
 # ── Helper to build a ContentItem for testing ──
 
 
-def _make_item(title="Test Item", url="https://example.com/test", score=8.0):
+def _make_item(
+    title="Test Item", url="https://example.com/test", score=8.0, metadata=None
+):
     """Create a minimal ContentItem for webhook tests."""
     return ContentItem(
         id="github:test:1",
@@ -814,6 +828,7 @@ def _make_item(title="Test Item", url="https://example.com/test", score=8.0):
         ai_score=score,
         ai_summary="AI summary",
         ai_tags=["test"],
+        metadata=metadata or {},
     )
 
 
@@ -931,6 +946,56 @@ class TestSendDailySummary:
             assert item2_vars["message_kind"] == "item"
             assert item2_vars["item_index"] == 2
             assert item2_vars["item_url"] == "https://example.com/b"
+        del os.environ[_TEST_URL_ENV]
+
+    def test_section_overviews_delivery_builds_one_message_per_digest_section(self):
+        os.environ[_TEST_URL_ENV] = _TEST_URL
+        config = WebhookConfig(
+            enabled=True,
+            url_env=_TEST_URL_ENV,
+            delivery="section_overviews",
+            platform="feishu",
+            layout="markdown",
+        )
+        notifier = WebhookNotifier(config)
+        summarizer = DailySummarizer()
+        items = [
+            _make_item(
+                title="Product A",
+                metadata={
+                    "digest_section": "radar",
+                    "digest_section_name": "第一部分：AI 产品雷达",
+                    "digest_section_order": 0,
+                },
+            ),
+            _make_item(
+                title="Research B",
+                url="https://example.com/research",
+                metadata={
+                    "digest_section": "other",
+                    "digest_section_name": "第二部分：其他 AI 资讯",
+                    "digest_section_order": 1,
+                },
+            ),
+        ]
+
+        messages = notifier.build_daily_summary_messages(
+            summary="# Full summary",
+            important_items=items,
+            all_items_count=20,
+            date="2026-04-24",
+            lang="zh",
+            summarizer=summarizer,
+        )
+
+        assert len(messages) == 2
+        assert all(message["message_kind"] == "section_overview" for message in messages)
+        assert messages[0]["section_key"] == "radar"
+        assert "Product A" in messages[0]["summary"]
+        assert "Research B" not in messages[0]["summary"]
+        assert messages[1]["section_key"] == "other"
+        assert "Research B" in messages[1]["summary"]
+        assert messages[0]["message_title"].startswith("Horizon 2026-04-24")
         del os.environ[_TEST_URL_ENV]
 
     def test_summary_and_items_overview_last_sends_reversed_items_then_overview(self):
@@ -1629,6 +1694,17 @@ class TestWebhookConfigFieldValidation:
         assert config.layout == "collapsible"
         assert config.fallback_layout == "markdown"
         assert config.overview_position == "last"
+
+    def test_section_overviews_delivery_is_valid(self):
+        config = WebhookConfig(
+            enabled=True,
+            delivery="section_overviews",
+            section_max_bytes=12_000,
+            send_interval_sec=0.3,
+        )
+        assert config.delivery == "section_overviews"
+        assert config.section_max_bytes == 12_000
+        assert config.send_interval_sec == 0.3
 
     def test_each_valid_platform(self):
         for p in ["generic", "feishu", "lark", "dingtalk", "slack", "discord"]:

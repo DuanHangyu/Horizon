@@ -37,6 +37,22 @@ The AI evaluates each item based on:
 
 Engagement metadata is source-specific: HN provides score and comment count, Reddit provides upvote ratio and comment count.
 
+### Radar scoring
+
+AI products and breakout repositories use a two-layer score:
+
+1. The AI rubric evaluates whether the item is genuinely an AI product/project,
+   its novelty, practical founder/FDE value, documentation or demo evidence,
+   and commercial or technical usefulness.
+2. A deterministic evidence score evaluates auditable platform momentum:
+   ranking, star velocity, votes, likes, comments, and cross-source agreement.
+
+The final radar score is `75% semantic quality + 25% platform evidence`. An item
+whose semantic score is below 7 can never be rescued by popularity. A repository
+confirmed by two or three of GitHub Trending, Trendshift, and OSSInsight receives
+a consensus bonus. The report shows the retained signal summary on the source
+line so the ranking decision is inspectable.
+
 ## Filtering
 
 After scoring, items are filtered by `filtering.ai_score_threshold` (default: `7.0`) and sorted by score descending. Optional balanced digest quotas are then applied before enrichment.
@@ -45,12 +61,22 @@ After scoring, items are filtered by `filtering.ai_score_threshold` (default: `7
 {
   "filtering": {
     "ai_score_threshold": 7.0,
+    "digest_backfill_score_threshold": 6.0,
     "time_window_hours": 24,
     "max_items": 20,
     "category_groups": {
       "ai": {
         "limit": 5,
-        "categories": ["ai-news", "ai-tools", "machine-learning"]
+        "categories": ["ai-news", "ai-tools", "machine-learning"],
+        "source_limits": {"producthunt": 3, "show_hn": 3}
+      }
+    },
+    "digest_sections": {
+      "radar": {
+        "name": "AI Products + OSS Radar",
+        "limit": 10,
+        "groups": ["ai"],
+        "min_score": 7.0
       }
     }
   }
@@ -58,6 +84,12 @@ After scoring, items are filtered by `filtering.ai_score_threshold` (default: `7
 ```
 
 `category_groups` limits each configured category group independently.
+`source_limits` is an optional hard cap per `radar_source`, including during
+section backfill. `digest_sections.*.min_score` is a hard quality floor for that
+section and is evaluated after radar calibration.
+When `digest_sections` is configured, group limits become preferred allocations
+inside the section and unused slots are backfilled by another group in that same
+section. Section limits remain hard caps.
 `max_items` caps the merged result. Both fields are optional; without them,
 scoring and filtering behave as before.
 

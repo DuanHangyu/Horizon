@@ -4,6 +4,11 @@ from types import SimpleNamespace
 
 import src.ai.analyzer as analyzer_module
 from src.ai.analyzer import ContentAnalyzer
+from src.ai.prompts import (
+    CONTENT_ANALYSIS_SYSTEM,
+    OSS_ANALYSIS_SYSTEM,
+    PRODUCT_ANALYSIS_SYSTEM,
+)
 from src.models import ContentItem, SourceType
 
 
@@ -94,3 +99,37 @@ def test_analyze_batch_concurrent_preserves_order(monkeypatch):
     result = asyncio.run(analyzer.analyze_batch(items))
 
     assert [item.id for item in result] == [item.id for item in items]
+
+
+def test_analyzer_uses_lane_specific_scoring_prompts():
+    product = _make_item("product")
+    product.metadata["category"] = "startup-products"
+    oss = _make_item("oss")
+    oss.metadata["category"] = "github-trending"
+    generic = _make_item("generic")
+
+    assert ContentAnalyzer._system_prompt_for(product) == PRODUCT_ANALYSIS_SYSTEM
+    assert ContentAnalyzer._system_prompt_for(oss) == OSS_ANALYSIS_SYSTEM
+    assert ContentAnalyzer._system_prompt_for(generic) == CONTENT_ANALYSIS_SYSTEM
+
+
+def test_radar_calibration_requires_relevance_and_rewards_consensus():
+    item = _make_item("oss-radar")
+    item.metadata.update(
+        {
+            "category": "github-trending",
+            "radar_signals": [
+                {"source": "github_trending", "rank": 2, "stars_gained": 500},
+                {"source": "trendshift", "rank": 3},
+                {"source": "ossinsight", "stars_gained": 420},
+            ],
+        }
+    )
+
+    low = ContentAnalyzer._calibrate_radar_score(item, 6.5)
+    high = ContentAnalyzer._calibrate_radar_score(item, 8.0)
+
+    assert low == 6.5
+    assert high > 8.0
+    assert item.metadata["radar_evidence_score"] >= 9.0
+    assert "GitHub Trending #2" in item.metadata["radar_signal_summary"]

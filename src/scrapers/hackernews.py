@@ -8,7 +8,8 @@ import asyncio
 import httpx
 
 from .base import BaseScraper
-from ..models import ContentItem, SourceType, HackerNewsConfig
+from .radar_utils import matches_keywords
+from ..models import ContentItem, SourceType, HackerNewsConfig, ShowHNConfig
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +141,71 @@ class HackerNewsScraper(BaseScraper):
                 "comment_count": len(comments),
             }
         )
+
+
+class ShowHNScraper(HackerNewsScraper):
+    """Dedicated scraper for the official Show HN story list."""
+
+    def __init__(self, config: ShowHNConfig, http_client: httpx.AsyncClient):
+        BaseScraper.__init__(self, config.model_dump(), http_client)
+        self.base_url = "https://hacker-news.firebaseio.com/v0"
+
+    async def fetch(self, since: datetime) -> List[ContentItem]:
+        if not self.config.get("enabled", False):
+            return []
+        try:
+            response = await self.client.get(f"{self.base_url}/showstories.json")
+            response.raise_for_status()
+            story_ids = response.json()[: self.config.get("fetch_top_stories", 50)]
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("Error fetching Show HN story list: %s", exc)
+            return []
+
+        stories = await asyncio.gather(
+            *(self._fetch_story(story_id) for story_id in story_ids),
+            return_exceptions=True,
+        )
+        min_score = self.config.get("min_score", 10)
+        valid_stories: list[dict] = []
+        comment_tasks = []
+        for story in stories:
+            if not isinstance(story, dict):
+                continue
+            published_at = datetime.fromtimestamp(story.get("time", 0), tz=timezone.utc)
+            if published_at < since or story.get("score", 0) < min_score:
+                continue
+            if self.config.get("ai_only", True) and not matches_keywords(
+                [story.get("title"), story.get("text")],
+                self.config.get("keywords") or [],
+            ):
+                continue
+            valid_stories.append(story)
+            comment_tasks.append(
+                self._fetch_comments((story.get("kids") or [])[:TOP_COMMENTS_LIMIT])
+            )
+
+        all_comments = await asyncio.gather(*comment_tasks, return_exceptions=True)
+        items: list[ContentItem] = []
+        for rank, (story, comments) in enumerate(
+            zip(valid_stories, all_comments), start=1
+        ):
+            parsed_comments = comments if isinstance(comments, list) else []
+            item = self._parse_story(story, parsed_comments)
+            item.metadata.update(
+                {
+                    "category": self.config.get("category"),
+                    "radar_source": "show_hn",
+                    "show_hn_rank": rank,
+                    "radar_signals": [
+                        {
+                            "source": "show_hn",
+                            "rank": rank,
+                            "points": story.get("score", 0),
+                            "comments": story.get("descendants", 0),
+                        }
+                    ],
+                    "discovery_type": "developer_product_launch",
+                }
+            )
+            items.append(item)
+        return items

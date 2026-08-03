@@ -19,6 +19,10 @@ class SourceType(str, Enum):
     OSSINSIGHT = "ossinsight"
     GDELT = "gdelt"
     GOOGLE_NEWS = "google_news"
+    TRENDSHIFT = "trendshift"
+    PRODUCTHUNT = "producthunt"
+    YC = "yc"
+    HUGGINGFACE = "huggingface"
 
 
 class ContentItem(BaseModel):
@@ -118,11 +122,96 @@ class AIConfig(BaseModel):
 class GitHubSourceConfig(BaseModel):
     """GitHub source configuration."""
 
-    type: str  # "user_events", "repo_releases", etc.
+    type: str  # "user_events", "repo_releases", "repo_search", etc.
     username: Optional[str] = None
     owner: Optional[str] = None
     repo: Optional[str] = None
+    query: Optional[str] = None
+    lookback_days: int = Field(default=30, gt=0)
+    min_stars: int = Field(default=0, ge=0)
+    max_items: int = Field(default=10, gt=0, le=100)
+    sort: str = "stars"
+    order: str = "desc"
+    category: Optional[str] = None
     enabled: bool = True
+
+
+DEFAULT_AI_RADAR_KEYWORDS = [
+    "ai",
+    "artificial intelligence",
+    "machine learning",
+    "deep learning",
+    "llm",
+    "language model",
+    "agent",
+    "agentic",
+    "mcp",
+    "rag",
+    "inference",
+    "multimodal",
+    "transformer",
+    "diffusion",
+    "embedding",
+    "vector database",
+    "copilot",
+    "coding assistant",
+]
+
+
+class GitHubTrendingConfig(BaseModel):
+    """GitHub Trending HTML source configuration."""
+
+    enabled: bool = False
+    period: str = "daily"  # daily, weekly, monthly
+    languages: List[str] = Field(default_factory=lambda: [""])
+    max_items: int = Field(default=30, gt=0, le=100)
+    ai_only: bool = True
+    keywords: List[str] = Field(default_factory=lambda: list(DEFAULT_AI_RADAR_KEYWORDS))
+    category: Optional[str] = "github-trending"
+
+
+class TrendshiftConfig(BaseModel):
+    """Trendshift ranking source with optional official API credentials."""
+
+    enabled: bool = False
+    period: str = "daily"
+    max_items: int = Field(default=30, gt=0, le=100)
+    api_token_env: str = "TRENDSHIFT_API_TOKEN"
+    ai_only: bool = True
+    keywords: List[str] = Field(default_factory=lambda: list(DEFAULT_AI_RADAR_KEYWORDS))
+    category: Optional[str] = "github-trending"
+
+
+class ProductHuntConfig(BaseModel):
+    """Product Hunt launch source, using GraphQL with an RSS fallback."""
+
+    enabled: bool = False
+    max_items: int = Field(default=20, gt=0, le=100)
+    api_token_env: str = "PRODUCTHUNT_TOKEN"
+    feed_url: str = "https://www.producthunt.com/feed"
+    ai_only: bool = True
+    keywords: List[str] = Field(default_factory=lambda: list(DEFAULT_AI_RADAR_KEYWORDS))
+    category: Optional[str] = "startup-products"
+
+
+class YCProductsConfig(BaseModel):
+    """YC Launches source, optionally cross-checked against the YC AI directory."""
+
+    enabled: bool = False
+    max_items: int = Field(default=20, gt=0, le=100)
+    ai_only: bool = True
+    validate_ai_directory: bool = True
+    category: Optional[str] = "startup-products"
+
+
+class HuggingFaceSpacesConfig(BaseModel):
+    """Trending public Hugging Face Spaces source configuration."""
+
+    enabled: bool = False
+    max_items: int = Field(default=20, gt=0, le=100)
+    min_likes: int = Field(default=10, ge=0)
+    max_age_days: int = Field(default=30, gt=0)
+    category: Optional[str] = "ai-products"
 
 
 class HackerNewsConfig(BaseModel):
@@ -131,6 +220,17 @@ class HackerNewsConfig(BaseModel):
     enabled: bool = True
     fetch_top_stories: int = 30
     min_score: int = 100
+
+
+class ShowHNConfig(BaseModel):
+    """Dedicated Show HN product discovery feed."""
+
+    enabled: bool = False
+    fetch_top_stories: int = Field(default=50, gt=0, le=500)
+    min_score: int = Field(default=10, ge=0)
+    ai_only: bool = True
+    keywords: List[str] = Field(default_factory=lambda: list(DEFAULT_AI_RADAR_KEYWORDS))
+    category: Optional[str] = "startup-products"
 
 
 class RSSSourceConfig(BaseModel):
@@ -264,6 +364,7 @@ class OSSInsightConfig(BaseModel):
     keywords: List[str] = Field(default_factory=list)
     min_stars: int = 5
     max_items: int = 30
+    category: Optional[str] = None
 
 
 class GDELTConfig(BaseModel):
@@ -307,8 +408,16 @@ class SourcesConfig(BaseModel):
     """All sources configuration."""
 
     github: List[GitHubSourceConfig] = Field(default_factory=list)
+    github_trending: GitHubTrendingConfig = Field(default_factory=GitHubTrendingConfig)
+    trendshift: TrendshiftConfig = Field(default_factory=TrendshiftConfig)
     hackernews: HackerNewsConfig = Field(default_factory=HackerNewsConfig)
+    show_hn: ShowHNConfig = Field(default_factory=ShowHNConfig)
     rss: List[RSSSourceConfig] = Field(default_factory=list)
+    producthunt: ProductHuntConfig = Field(default_factory=ProductHuntConfig)
+    yc_products: YCProductsConfig = Field(default_factory=YCProductsConfig)
+    huggingface_spaces: HuggingFaceSpacesConfig = Field(
+        default_factory=HuggingFaceSpacesConfig
+    )
     reddit: RedditConfig = Field(default_factory=RedditConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     twitter: Optional[TwitterConfig] = None
@@ -328,7 +437,7 @@ class WebhookConfig(BaseModel):
         None  # POST body: real JSON object or string with #{key} placeholders; if empty, will use GET
     )
     headers: Optional[str] = None  # Custom headers, "Key: Value" per line
-    delivery: str = "summary"  # summary, or summary_and_items
+    delivery: str = "summary"  # summary, summary_and_items, or section_overviews
     overview_position: str = "first"  # For summary_and_items: first, or last
     platform: str = "generic"  # generic, feishu, lark, dingtalk, slack, discord
     layout: str = "markdown"  # markdown, or collapsible
@@ -338,12 +447,14 @@ class WebhookConfig(BaseModel):
     languages: Optional[List[str]] = (
         None  # Optional language filter for webhook delivery; defaults to all AI languages
     )
+    section_max_bytes: int = Field(default=14_000, ge=4_000, le=18_000)
+    send_interval_sec: float = Field(default=0.0, ge=0.0, le=60.0)
     enabled: bool = False
 
     @field_validator("delivery")
     @classmethod
     def validate_delivery(cls, v: str) -> str:
-        allowed = {"summary", "summary_and_items"}
+        allowed = {"summary", "summary_and_items", "section_overviews"}
         if v not in allowed:
             raise ValueError(f"webhook.delivery must be one of {allowed}, got '{v}'")
         return v
@@ -408,17 +519,46 @@ class CategoryGroupConfig(BaseModel):
     name: Optional[str] = None
     limit: int = Field(gt=0)
     categories: List[str] = Field(min_length=1)
+    source_limits: Dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("source_limits")
+    @classmethod
+    def validate_source_limits(cls, value: Dict[str, int]) -> Dict[str, int]:
+        if any(limit <= 0 for limit in value.values()):
+            raise ValueError("category group source limits must be positive")
+        return value
+
+
+class DigestSectionConfig(BaseModel):
+    """A top-level digest section made up of one or more quota groups.
+
+    Group limits are treated as preferred allocations inside a section. Any
+    unused allocation is backfilled by the highest-scoring remaining items
+    from another group in the same section, up to the section limit.
+    """
+
+    name: Optional[str] = None
+    limit: int = Field(gt=0)
+    groups: List[str] = Field(min_length=1)
+    min_score: Optional[float] = Field(default=None, ge=0, le=10)
 
 
 class FilteringConfig(BaseModel):
     """Content filtering configuration."""
 
     ai_score_threshold: float = 7.0
+    digest_backfill_score_threshold: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=10,
+    )
     time_window_hours: int = 24
     max_items: Optional[int] = Field(default=None, gt=0)
     category_groups: Dict[str, CategoryGroupConfig] = Field(default_factory=dict)
+    digest_sections: Dict[str, DigestSectionConfig] = Field(default_factory=dict)
     default_group: str = "other"
     default_group_limit: Optional[int] = Field(default=None, gt=0)
+    default_section: Optional[str] = None
 
 
 class Config(BaseModel):

@@ -1,5 +1,6 @@
 """Webhook notification service for Horizon."""
 
+import asyncio
 import json
 import logging
 import os
@@ -197,14 +198,27 @@ def _extract_headers(headers_str: Optional[str]) -> dict:
 
 
 def redact_url(url: str) -> str:
-    """Return a log-safe URL without query strings or fragments."""
+    """Return a log-safe URL without query strings, fragments, or hook tokens."""
     try:
         parts = urlsplit(url)
     except ValueError:
         return "<invalid-url>"
     if not parts.scheme or not parts.netloc:
         return "<redacted-url>"
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+    path_parts = parts.path.split("/")
+    sensitive_markers = {"hook", "hooks", "webhook", "webhooks"}
+    for index, path_part in enumerate(path_parts):
+        if path_part.lower() in sensitive_markers and index < len(path_parts) - 1:
+            path_parts = path_parts[: index + 1] + ["<redacted>"]
+            break
+    else:
+        # Slack stores the credential entirely in the path on hooks.slack.com.
+        if parts.hostname and parts.hostname.lower().startswith("hooks."):
+            path_parts = ["", "<redacted>"]
+
+    safe_path = "/".join(path_parts)
+    return urlunsplit((parts.scheme, parts.netloc, safe_path, "", ""))
 
 
 def redact_headers(headers: dict[str, str]) -> dict[str, str]:
@@ -487,6 +501,33 @@ class WebhookNotifier:
             ]
 
         delivery = getattr(self.config, "delivery", "summary")
+        if delivery == "section_overviews":
+            section_overviews = summarizer.generate_webhook_section_overviews(
+                important_items,
+                date,
+                all_items_count,
+                language=lang,
+                max_bytes=self.config.section_max_bytes,
+            )
+            messages: List[dict[str, Any]] = []
+            for section in section_overviews:
+                chunk_suffix = (
+                    f" ({section['chunk_index']}/{section['chunk_count']})"
+                    if section["chunk_count"] > 1
+                    else ""
+                )
+                messages.append(
+                    {
+                        **base_vars,
+                        **section,
+                        "message_title": (
+                            f"Horizon {date}｜{section['section_name']}{chunk_suffix}"
+                        ),
+                        "message_kind": "section_overview",
+                    }
+                )
+            return messages
+
         if delivery == "summary_and_items":
             item_messages: List[dict[str, Any]] = []
             overview = summarizer.generate_webhook_overview(
@@ -747,8 +788,11 @@ class WebhookNotifier:
             return
 
         self.console.print(f"🔔 Sending {lang.upper()} webhook notification...")
-        for message in messages:
+        interval = getattr(self.config, "send_interval_sec", 0.0)
+        for index, message in enumerate(messages):
             await self.notify(message)
+            if interval > 0 and index < len(messages) - 1:
+                await asyncio.sleep(interval)
 
     async def send_failure(
         self,
