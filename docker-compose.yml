@@ -1,13 +1,24 @@
+name: horizon
+
 services:
   horizon:
-    build: .
-    container_name: horizon
+    image: horizon:local
+    build:
+      context: .
     volumes:
       - ./data:/app/data
-      - ./.env:/app/.env:ro
+      - ./docs:/app/docs
+    env_file:
+      - .env
     environment:
-      - TZ=UTC
-    restart: unless-stopped
-    # Run daily at 8:00 AM UTC (adjust as needed)
-    # For one-time run, use: docker compose run --rm horizon
+      TZ: Asia/Shanghai
+    init: true
+    cpus: 2.0
+    mem_limit: 4g
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Scheduling is owned by systemd. The container itself is a one-shot job.
     command: ["--hours", "24"]

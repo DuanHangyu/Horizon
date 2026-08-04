@@ -1,11 +1,9 @@
 name: Daily Horizon Summary
 
 on:
-  schedule:
-    # Run every day at 08:30 in China, away from the top-of-hour traffic peak.
-    - cron: '30 8 * * *'
-      timezone: 'Asia/Shanghai'
-  workflow_dispatch:      # Allow manual trigger
+  # Production scheduling is handled by the server's systemd timer. Keep this
+  # workflow as an explicit fallback without creating duplicate daily pushes.
+  workflow_dispatch:
 
 jobs:
   daily-summary:

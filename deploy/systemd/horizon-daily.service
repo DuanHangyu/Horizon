@@ -1,0 +1,24 @@
+[Unit]
+Description=Horizon daily AI intelligence digest
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+ConditionPathExists=/opt/horizon/.env
+ConditionPathExists=/opt/horizon/data/config.json
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/horizon
+Environment=COMPOSE_ANSI=never
+UMask=0077
+ExecStartPre=/usr/bin/docker compose -f /opt/horizon/docker-compose.yml config --quiet
+ExecStart=/usr/bin/flock -n /run/lock/horizon-daily.lock /usr/bin/docker compose -f /opt/horizon/docker-compose.yml run --rm --no-deps horizon --hours 24
+TimeoutStartSec=60min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
